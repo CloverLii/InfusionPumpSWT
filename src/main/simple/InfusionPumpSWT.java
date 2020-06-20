@@ -5,7 +5,7 @@ import org.eclipse.swt.widgets.*;
 
 public class InfusionPumpSWT {
 	
-	private Shell shell;
+	private static Shell shell;
 	private Button upBtn;
 	private Button downBtn;
 	private Button yesStartBtn;
@@ -13,261 +13,46 @@ public class InfusionPumpSWT {
 	private Button onOffBtn;
 	private Label displayLabel;
 			
-	private int TOTAL_VOLUME = 500;
-	private int RATE_MAX = 25;
-	private int VALUE_STEP = 1;
+	private final int VOLUME_MAX = 800; //maximum of volume, ml
+	private final int VOLUME_MIN = 100; 
+	private final int DURATION_MAX = 80; //maximum of duration, mins
+	private final int DURATION_MIN = 10;
+	private final int VOLUME_STEP = 100; //increment or decrement when change volume
+	private final int DURATION_STEP = 10; //increment or decrement when change duration
 	
-	private int pumpID;
-	private int batteryPercent = 0;
-	private int rate;	// volume per minute, ml/min
-	private int duration;	// duration = TOTAL_VOLUME/rate
-	private int curRate;
-	private String displayContent = "";
-	private boolean isPowerOn = false;
+	private int pumpID; //default value is 1
+	private int batteryPercent = 0; // value is 100 when power on
+	private int volume = 0; 
+	private int duration = 0;	
+	private int oldVolume = 0; //used when cancel settings
+	private int oldDuration = 0; //used when cancel settings
+	private String displayContent = " ";
+	
+	private final String hintStr = " Configuration Instruction"
+			+ "\n\n -> Power On"
+			+ "\n -> Set Volume"
+			+ "\n -> Set Duration"
+			+ "\n -> Confirm Settings"
+			+ "\n -> Start Infusion?"
+			+ "\n -> Start Infusion...";
 	
 	enum Status{
-		Initial,	// initial status after powered on
-		SettingStart,	// start setting
-		Setting,	// configuration is ongoing, + and - is enabled
-		Paused,		// infusion is paused
-		Infusing,	// infusion is ongoing
-		SettingCancelled	// configuration is cancelled
+		Off, // power off
+		Initial, // initial status after powered on or stop infusion
+		SetVolume,
+		SetDuration,
+		SettingsConfirmed,
+		QStartInfusion, //double check before start infusion
+		Infusing, // infusion is ongoing
+		Paused,	 // infusion is paused
+		SettingsCancelled // configuration is cancelled
 	}
-	private Status status;
+	private Status status = Status.Off;
 	
 	public InfusionPumpSWT(int id) {
 		this.pumpID = id;
-	}
-		
-	public void open(){
-		Display display = Display.getDefault();
 		initializeGUI();
-		initializeValue();
-		while (!shell.isDisposed ()) {
-			if (!display.readAndDispatch ()) display.sleep ();
-		}
-	}
-
-	protected void initializeGUI(){
-		shell = new Shell();
-		shell.setText("Simple Infusion Pump");
-		
-		displayLabel = new Label (shell, SWT.COLOR_DARK_GRAY | SWT.WRAP);
-		displayLabel.setText (displayContent);
-		displayLabel.setBounds(50, 10, 400, 150);
-	
-		upBtn = new Button (shell, SWT.PUSH);
-		upBtn.setText ("+");
-		upBtn.setBounds(10, 170, 80, 80);
-		upBtn.setEnabled(false);
-		upBtn.addListener(SWT.Selection, event ->{
-			executeUp();
-			upBtn.setSelection(true);
-		});
-		
-		yesStartBtn = new Button(shell, SWT.PUSH);
-		yesStartBtn.setText("Yes/Start");
-		yesStartBtn.setBounds(100, 170, 200, 80);
-		yesStartBtn.setEnabled(false);
-		yesStartBtn.addListener(SWT.Selection, event ->{
-			executeYesStart();
-			yesStartBtn.setSelection(true);
-		});
-		yesStartBtn.addListener(SWT.MouseDoubleClick, event ->{
-			executeSetting();
-			yesStartBtn.setSelection(true);
-		});
-		
-		onOffBtn = new Button (shell, SWT.PUSH);
-		onOffBtn.setText ("On/Off");
-		onOffBtn.setBounds(310, 170, 120, 160);
-//		onOffBtn.addListener(SWT.Selection, event ->{
-//			executeOnOff();
-//			onOffBtn.setSelection(true);
-//		});
-
-		onOffBtn.addListener(SWT.MouseDoubleClick, event ->{
-			executeOnOff();
-			onOffBtn.setSelection(true);
-		});
-		
-		downBtn = new Button (shell, SWT.PUSH);
-		downBtn.setText ("-");
-		downBtn.setBounds(10, 250, 80, 80);
-		downBtn.setEnabled(false);
-		downBtn.addListener(SWT.Selection, event ->{
-			executeDown();
-			downBtn.setSelection(true);
-		});
-				
-		noStopBtn = new Button (shell, SWT.PUSH);
-		noStopBtn.setText ("No/Stop");	
-		noStopBtn.setBounds(100, 250, 200, 80);
-		noStopBtn.setEnabled(false);
-		noStopBtn.addListener(SWT.Selection, event ->{
-			executeNoStop();
-			noStopBtn.setSelection(true);
-		});
-		
-		shell.setDefaultButton (onOffBtn);
-		shell.pack ();
-		shell.open ();
-	}
-	
-	/*
-	 * Initialize the values when turns on	
-	 */
-		private void initializeValue() {
-			
-			batteryPercent = 100;
-			rate = 5;
-			curRate = rate;
-			duration = TOTAL_VOLUME/rate;
-			status = Status.Initial;
-			displayInfo();
-		}
-		
-		private void displayInfo() {
-			if(isPowerOn) {
-				displayContent =  "1. Double-Click [On/Off] to power on "
-						+ "\n2. Double-Click [Yes/Start] to configure the infusion pump"
-						+ "\n"
-						+ "\nPumpId: " + pumpID
-						+ "\nBatteryPercent: " + batteryPercent
-						+ "\nTotal Volume: " + TOTAL_VOLUME
-						+ "\nRate(ml/min): " + rate
-						+ "\nDuration(mins): " + duration
-						+ "\nStatus: " + status;
-			}else {
-				displayContent = " Powered off..."
-						+ "\n"
-						+ "\n1. Double-Click [On/Off] to power on "
-						+ "\n"
-						+ "\n2. Double-Click [Yes/Start] to configure the infusion pump";
-			}	
-			displayLabel.setText(displayContent);
-		}
-		
-		/*
-		 * Increase the value of rate, calculate the duration
-		 */
-		private void executeUp() {
-			if(status == Status.SettingStart) {
-				status = Status.Setting;
-				curRate = rate;
-			}
-			if(isPowerOn && status == Status.Setting) {
-				if(rate < RATE_MAX) {
-					rate += VALUE_STEP;
-					duration = (int) TOTAL_VOLUME/rate;
-				}else {
-					rate = RATE_MAX; 
-					duration = (int) TOTAL_VOLUME/rate;
-				}
-				System.out.println("Increase rate to: " + rate);
-			}	
-			displayInfo();
-		}
-		
-		/*
-		 * Decrease the value of rate, calculate the duration
-		 */
-		private void executeDown() {
-			if(status == Status.SettingStart) {
-				status = Status.Setting;
-				curRate = rate;
-			}
-			if(isPowerOn && status == Status.Setting) {
-				if(rate > 1) {
-					rate -= VALUE_STEP;
-					duration = (int) TOTAL_VOLUME/rate;
-				}else {
-					rate = 1;
-					duration = (int) TOTAL_VOLUME/rate;
-				}
-				System.out.println("Decrease rate to: " + rate);
-			}
-			displayInfo();
-		}
-		
-		/*
-		 * Start infusion	
-		 */
-		private void executeYesStart() {	
-			if(isPowerOn) {
-				if(status == Status.Initial) {
-					System.out.println("Please configure the infusion pump first ");
-				}else if(status == Status.Paused  || status == Status.SettingCancelled || status == Status.Setting) {
-					status = Status.Infusing;
-					System.out.println("**** Start infusion ****");
-				}
-				displayInfo();
-			}		
-		}
-		
-		/*
-		 * Start configuration
-		 */
-		public void executeSetting() {
-			if(isPowerOn && status != Status.SettingStart) {
-					status = Status.SettingStart;
-					upBtn.setEnabled(true);
-					downBtn.setEnabled(true);
-					noStopBtn.setEnabled(true);
-					System.out.println("**** Start configuration ****");
-				}
-			displayInfo();
-		}
-
-		/*
-		 * Cancel settings or pause infusion
-		 */
-		private void executeNoStop() {
-			if(isPowerOn) {
-				if(status == Status.Infusing) {
-					status = Status.Paused;
-					System.out.println("**** Status: infusting -> paused ****");
-				}else if(status == Status.Setting || status == Status.SettingStart) {
-					setRate(curRate);
-					setDuration(curRate);
-					status = Status.SettingCancelled;
-					System.out.println("**** Cancel configuration ****");
-				}
-				displayInfo();
-			}
-		}
-		
-		/*
-		 * Power on or power off
-		 */
-		private void executeOnOff() {
-			if (isPowerOn == false) {
-				isPowerOn = true;
-				yesStartBtn.setEnabled(true);
-				System.out.println("**** Power on ****");
-			}else {
-				isPowerOn = false;
-				upBtn.setEnabled(false);
-				downBtn.setEnabled(false);
-				yesStartBtn.setEnabled(false);
-				noStopBtn.setEnabled(false);
-				System.out.println("**** Powered off ****");
-			}
-			displayInfo();
-		}
-		
-	public void setRate(int rate) {this.rate = rate;}
-
-	public int getRate() {return rate;}
-		
-	public int getDuration() {return duration;}
-		
-	public void setDuration(int rate) {
-		if(rate != 0) {
-			this.duration = (int)TOTAL_VOLUME/rate;
-		}else {
-			duration = 0;
-		}
+		displayInfo();
 	}
 	
 	public static void main(String [] args) 
@@ -275,4 +60,242 @@ public class InfusionPumpSWT {
 		InfusionPumpSWT pump = new InfusionPumpSWT(1);
 		pump.open();
 	}
+	
+	private void open(){
+		Display display = Display.getDefault();
+		while (!shell.isDisposed ()) {
+			if (!display.readAndDispatch ()) display.sleep ();
+		}
+	}		
+
+	private void initializeGUI(){
+		shell = new Shell();
+		shell.setText("Simple Infusion Pump");
+		shell.setBounds(100, 100, 460, 460 );
+		
+		Label hintLabel = new Label (shell, SWT.COLOR_DARK_GRAY | SWT.WRAP);		
+		hintLabel.setBounds(15, 20, 180, 180);
+		hintLabel.setText (hintStr);
+		
+		displayLabel = new Label (shell, SWT.WRAP);
+		displayLabel.setText (displayContent);
+		displayLabel.setBounds(190, 20, 180, 180);
+	
+		upBtn = new Button (shell, SWT.PUSH);
+		upBtn.setText ("+");
+		upBtn.setBounds(15, 180, 60, 60);
+		upBtn.setEnabled(false);
+		upBtn.addListener(SWT.Selection, event ->{
+			executeUp();
+			upBtn.setSelection(true);
+		});
+		
+		downBtn = new Button (shell, SWT.PUSH);
+		downBtn.setText ("-");
+		downBtn.setBounds(15, 260, 60, 60);
+		downBtn.setEnabled(false);
+		downBtn.addListener(SWT.Selection, event ->{
+			executeDown();
+			downBtn.setSelection(true);
+		});
+		
+		yesStartBtn = new Button(shell, SWT.PUSH);
+		yesStartBtn.setText("Yes/Start");
+		yesStartBtn.setBounds(90, 180, 140, 60);
+		yesStartBtn.addListener(SWT.Selection, event ->{
+			executeYesStart();
+			yesStartBtn.setSelection(true);
+		});
+		
+		noStopBtn = new Button (shell, SWT.PUSH);
+		noStopBtn.setText ("No/Stop");	
+		noStopBtn.setBounds(90, 260, 140, 60);
+		noStopBtn.setEnabled(false);
+		noStopBtn.addListener(SWT.Selection, event ->{
+			executeNoStop();
+			noStopBtn.setSelection(true);
+		});
+		
+		onOffBtn = new Button (shell, SWT.PUSH);
+		onOffBtn.setText ("On/Off");
+		onOffBtn.setBounds(245, 180, 110, 140);
+		onOffBtn.addListener(SWT.Selection, event ->{
+			executeOnOff();
+			onOffBtn.setSelection(true);
+		});
+		
+	
+		shell.setDefaultButton (onOffBtn);
+		shell.pack ();
+		shell.open ();
+	}
+	
+	/*
+	 * Initialize values	
+	 */
+		private void initializeValue() {
+			
+			batteryPercent = 100;
+			duration = 10;
+			volume = 100;
+			duration = 10;
+			oldVolume = volume;
+			oldDuration = duration;
+			
+			status = Status.Initial;
+			upBtn.setEnabled(true);
+			downBtn.setEnabled(true);
+			noStopBtn.setEnabled(true);
+			displayInfo();
+		}
+		
+		/*
+		 * Display the settings and status
+		 */
+		private void displayInfo() {
+			if(status == Status.Off) {
+				displayContent = "Powered Off"
+								+ " \n\nDisplay confusion status and settings";			
+			}else {
+				displayContent = " PumpId: " + pumpID
+						+ " \n BatteryPercent: " + batteryPercent
+						+ " \n\n Volume(ml): " + volume
+						+ " \n Duration(mins): " + duration
+						+ " \n Rate(ml/mins): " + calculateRate()
+						+ " \n\n Status: " + status;
+			}
+			displayLabel.setText(displayContent);
+		}
+
+		/*
+		 * Calculate infusion rate
+		 */
+		private String calculateRate() {
+			return String.format("%.2f", (double)volume/duration);
+		}
+		
+		/*
+		 * Increase the value of volume of duration
+		 */
+		private void executeUp() {
+			if(status == Status.SetVolume) {
+				if(volume < VOLUME_MAX) {
+					volume += VOLUME_STEP;				
+				}else {
+					volume = VOLUME_MAX; 
+				}
+				System.out.println("Increase volume to: " + volume);
+			}else if(status == Status.SetDuration) {
+				if(duration < DURATION_MAX) {
+					duration += DURATION_STEP;
+				}else {
+					duration = DURATION_MAX; 
+				}			
+				System.out.println("Increase duration to: " + duration);
+			}
+			displayInfo();
+		}
+		
+		
+		/*
+		 * Decrease the value of volume or duration
+		 */
+		private void executeDown() {
+			if(status == Status.SetVolume) {
+				if(volume > VOLUME_MIN) {
+					volume -= VOLUME_STEP;				
+				}else {
+					volume = VOLUME_MIN; 
+				}
+				System.out.println("Decrease volume to: " + volume);
+			}else if(status == Status.SetDuration) {
+				if(duration > DURATION_MIN) {
+					duration -= DURATION_STEP;
+				}else {
+					duration = DURATION_MIN; 
+				}
+				System.out.println("Decrease duration to: " + duration);
+			}
+			displayInfo();
+		}
+		
+		/*
+		 * Switch modes: SetVolume, SetDuration, ConfirmSettings, QInfusionStart, StartInfusion	
+		 */
+		private void executeYesStart() {
+			switch(status) {
+				case Initial:
+				case Infusing:
+				case SettingsCancelled:
+					status = Status.SetVolume;
+					System.out.println("**** Set volume ****");
+					break;
+				case SetVolume:
+					status = Status.SetDuration;
+					System.out.println("**** Set duration ****");
+					break;
+				case SetDuration:
+					status = Status.SettingsConfirmed;
+					oldVolume = volume;
+					oldDuration = duration;
+					System.out.println("**** Confirm settings ****");
+					break;
+				case SettingsConfirmed:
+					status = Status.QStartInfusion;
+					System.out.println("**** Start infusion ? ****");
+					break;
+				case QStartInfusion:
+				case Paused:
+					status = Status.Infusing;
+					System.out.println("**** Start infusion ... ****");
+					break;
+				default:
+					break;
+			}
+			displayInfo();	
+		}
+
+		/*
+		 * Cancel settings, pause infusion or stop infusion
+		 */
+		private void executeNoStop() {
+			switch (status){
+				case SetVolume:
+				case SetDuration:
+					status = Status.SettingsCancelled;
+					volume = oldVolume;
+					duration = oldDuration;
+					System.out.println("**** Cancel settings ****");
+					break;
+				case Paused:
+				case SettingsCancelled:
+					initializeValue();
+					System.out.println("**** Status: paused/settingsCancelled -> Initial ****");
+					break;
+				default:
+					status = Status.Paused;
+					System.out.println("**** Status: infusing -> paused ****");
+					break;
+			}
+			displayInfo();
+		}
+		
+		/*
+		 * Power on or power off
+		 */
+		private void executeOnOff() {
+			if (status == Status.Off) {
+				status = Status.Initial;
+				initializeValue();
+				System.out.println("**** Powered on ****");
+			}else {
+				status = Status.Off;
+				upBtn.setEnabled(false);
+				downBtn.setEnabled(false);
+				noStopBtn.setEnabled(false);
+				System.out.println("**** Powered off ****");
+			}
+			displayInfo();
+		}
+		
 }
